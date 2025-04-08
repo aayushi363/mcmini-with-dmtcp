@@ -180,7 +180,7 @@ int mc_pthread_mutex_lock(pthread_mutex_t *mutex) {
       }
       libpthread_mutex_unlock(&rec_list_lock);
 
-      struct timespec time = {.tv_sec = 2};
+      struct timespec time = {.tv_sec = 2, .tv_nsec = 0};
       while (1) {
         int rc = libpthread_mutex_timedlock(mutex, &time);
         if (rc == 0) {  // Lock succeeded
