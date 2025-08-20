@@ -18,6 +18,11 @@ struct config {
   uint64_t max_thread_execution_depth;
 
   /**
+   * The port on which the coordinator listens for incoming connections
+   */
+  uint64_t coord_port;
+
+  /**
    * The trace id to stop the model checker at
    * to print the contents of the transition stack
    */
@@ -46,6 +51,16 @@ struct config {
    * running in record mode.
    */
   std::chrono::seconds checkpoint_period;
+
+  /**
+   * The directory where user wants to save the checkpoint images
+   */
+  std::string checkpoint_dir = "";
+
+  /** 
+   * Informs DMTCP to gzip the checkpoint images
+   */
+  bool nogzip = false;
 
   /**
    * The path to the checkpoint file that should be used to begin deep debugging
