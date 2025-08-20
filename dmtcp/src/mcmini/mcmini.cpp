@@ -329,11 +329,19 @@ void do_recording(const config& config) {
   char dir[PATH_MAX];
   // FIXME:  This depends on mcmini starting in root dir of git repo.
   std::string libmcini_dir = getcwd(dir, sizeof(dir)) ? dir : "PATH_TOO_LONG";
-  std::string libmcmini_path = libmcini_dir + "/libmcmini.so";
+  // std::string libmcmini_path = libmcini_dir + "/libmcmini.so";
+  std::string libmcmini_path = "/home/aayushi/tmp-mcmini/mcmini/dmtcp/build/libmcmini.so";
   std::vector<std::string> dmtcp_launch_args;
   dmtcp_launch_args.push_back("--disable-alloc-plugin");
+  dmtcp_launch_args.push_back("--coord-port");
+  dmtcp_launch_args.push_back(std::to_string(config.coord_port));
   dmtcp_launch_args.push_back("-i");
   dmtcp_launch_args.push_back(std::to_string(config.checkpoint_period.count()));
+  dmtcp_launch_args.push_back("--ckptdir");
+  dmtcp_launch_args.push_back(config.checkpoint_dir.empty() ? "." : config.checkpoint_dir);
+  if (config.nogzip) {
+    dmtcp_launch_args.push_back("--no-gzip");
+  }
   dmtcp_launch_args.push_back("--with-plugin");
   dmtcp_launch_args.push_back(libmcmini_path);
   dmtcp_launch_args.push_back("--modify-env");
@@ -403,12 +411,28 @@ int main_cpp(int argc, const char** argv) {
         exit(1);
       }
       cur_arg += 2;
+    } else if (strcmp(cur_arg[0], "--coord-port") == 0 ||
+               strcmp(cur_arg[0], "-p") == 0) {
+      mcmini_config.coord_port = strtoul(cur_arg[1], nullptr, 10);
+      char* endptr;
+      if (strtol(cur_arg[1], &endptr, 10) == 0 || endptr[0] != '\0') {
+        fprintf(stderr, "%s: illegal value\n", "--coord-port");
+        exit(1);
+      }
+      cur_arg += 2;
     } else if (strcmp(cur_arg[0], "--interval") == 0 ||
                strcmp(cur_arg[0], "-i") == 0) {
       mcmini_config.record_target_executable_only = true;
       mcmini_config.checkpoint_period =
           std::chrono::seconds(strtoul(cur_arg[1], nullptr, 10));
       cur_arg += 2;
+    } else if (strcmp(cur_arg[0], "--ckptdir") == 0) {
+      mcmini_config.checkpoint_dir = cur_arg[1];
+      cur_arg += 2;
+    } else if (strcmp(cur_arg[0], "--no-gzip") == 0) {
+      // If set, checkpoint files will not be compressed using gzip
+      mcmini_config.nogzip = true;
+      cur_arg++;
     } else if (strcmp(cur_arg[0], "--from-checkpoint") == 0 ||
                strcmp(cur_arg[0], "-ckpt") == 0) {
       mcmini_config.checkpoint_file = cur_arg[1];
