@@ -886,6 +886,18 @@ int mc_pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
       }
       cond_record->vo.cond_state.associated_mutex = mutex;
       cond_record->vo.cond_state.count++;
+      
+      // CRITICAL FIX: Check if already signaled BEFORE attempting to wait
+      // This prevents race condition where thread blocks when already signaled by broadcast/signal
+      condition_variable_status initial_cv_state = get_thread_cv_state(cond_record->vo.cond_state.waiting_threads, tmp);
+      if (initial_cv_state == CV_SIGNALED) {
+        // Thread was already signaled - don't wait, just clean up and return
+        remove_thread_from_queue(cond_record->vo.cond_state.waiting_threads, tmp);
+        cond_record->vo.cond_state.count--;
+        libpthread_mutex_unlock(&rec_list_lock);
+        return 0;
+      }
+      
       libpthread_mutex_unlock(&rec_list_lock);
 
       struct timespec wait_time = {.tv_sec = 2, .tv_nsec = 0};
@@ -942,6 +954,29 @@ int mc_pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
           //   we know it has not fully transitioned to a waiting state and can handle it accordingly.
           // - If the thread is in CV_WAITING (inner waiting room), we know it has entered a stable wait
           //   state, ensuring the mutex-conditional interaction is checkpoint-safe.
+          if (is_in_restart_mode()) {
+              break;
+          }
+          
+          // BUGFIX: Check if this thread was signaled during timeout
+          // This handles race condition where signal occurs during the timeout window
+          libpthread_mutex_lock(&rec_list_lock);
+          thrd_record = find_thread_record_mode(pthread_self());
+          condition_variable_status cv_state = get_thread_cv_state(cond_record->vo.cond_state.waiting_threads, thrd_record->vo.thrd_state.id);
+          
+          if (cv_state == CV_SIGNALED) {
+            // Thread was signaled during timeout - we should exit the wait
+            remove_thread_from_queue(cond_record->vo.cond_state.waiting_threads, thrd_record->vo.thrd_state.id);
+            cond_record->vo.cond_state.count--;
+            libpthread_mutex_unlock(&rec_list_lock);
+            return 0; // Return success since we were signaled
+          } else if (cv_state == CV_PREWAITING) {
+            // Update thread to CV_WAITING state for proper condition variable handling
+            update_thread_cv_state(cond_record->vo.cond_state.waiting_threads, thrd_record->vo.thrd_state.id, CV_WAITING);
+          }
+          libpthread_mutex_unlock(&rec_list_lock);
+          
+          // Check if we're in restart mode after updating state
           if (is_in_restart_mode()) {
               break;
           }
@@ -1106,8 +1141,8 @@ int mc_pthread_cond_broadcast(pthread_cond_t *cond) {
         // Mark all waiting threads as signaled
         thread_queue_node* current = cond_record->vo.cond_state.waiting_threads->front;
         while (current != NULL) {
-          // Only mark CV_WAITING threads as signaled (not transitional)
-          if (current->thread_cv_state == CV_WAITING) {
+          // Mark both CV_WAITING and CV_PREWAITING threads as signaled for barrier support
+          if (current->thread_cv_state == CV_WAITING || current->thread_cv_state == CV_PREWAITING) {
             update_thread_cv_state(cond_record->vo.cond_state.waiting_threads,
                                    current->thread, CV_SIGNALED);
           }
